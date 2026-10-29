@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./karavali.db"
+}
+
+model User {
+  id           String      @id @default(cuid())
+  name         String
+  phone        String      @unique
+  role         String      // "OPERATOR" | "BOAT_OWNER" | "BUYER"
+  pin          String      @default("1234")
+  boatOwnerId  String?     @unique
+  boatOwner    BoatOwner?  @relation(fields: [boatOwnerId], references: [id], onDelete: Cascade)
+  buyerId      String?     @unique
+  buyer        Buyer?      @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model BoatOwner {
+  id                     String                    @id @default(cuid())
+  ownerName              String
+  registeredMobileNumber String                    @unique
+  boatName               String?
+  boatRegistrationNumber String?                   @unique
+  landingCentre          String                    // e.g. "Mangaluru Old Port (Bunder)", "Malpe Harbour"
+  accountStatus          String                    @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  potentialBuyers        BoatOwnerPotentialBuyer[]
+  landings               LandingBatch[]
+  user                   User?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+}
+
+model Buyer {
+  id                     String                    @id @default(cuid())
+  contactName            String                    // Business or contact name
+  businessName           String?                   // Business name, if applicable
+  buyerType              String                    // "auction agent" | "wholesaler" | "retailer" | "trader"
+  businessPhoneNumber    String                    @unique
+  preferredContactMethod String                    @default("PHONE") // "PHONE" | "WHATSAPP" | "SMS"
+  relevantLocation       String
+  status                 String                    @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  potentialBuyers        BoatOwnerPotentialBuyer[]
+  dispatches             Dispatch[]
+  outreachAttempts       OutreachAttempt[]
+  user                   User?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+}
+
+model BoatOwnerPotentialBuyer {
+  id                     String            @id @default(cuid())
+  boatOwnerId            String
+  boatOwner              BoatOwner         @relation(fields: [boatOwnerId], references: [id], onDelete: Cascade)
+  buyerId                String?
+  buyer                  Buyer?            @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  contactName            String
+  phoneNumber            String
+  buyerType              String            // "auction agent" | "wholesaler" | "retailer" | "trader"
+  speciesPreferences     String?           // relevant fish species or buying preferences, if known
+  preferredContactMethod String            @default("PHONE") // "PHONE" | "WHATSAPP" | "SMS"
+  consentStatus          String            @default("CONSENT_GRANTED") // "CONSENT_GRANTED" | "PENDING" | "OPTED_OUT"
+  notes                  String?
+  status                 String            @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  outreachAttempts       OutreachAttempt[]
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  @@unique([boatOwnerId, phoneNumber])
+}
+
+model LandingBatch {
+  id                  String             @id @default(cuid())
+  batchNumber         String             @unique // e.g. "KRV-MAL-000001", "KRV-MNG-000001"
+  idempotencyKey      String?            @unique // Duplicate request protection
+  boatOwnerId         String
+  boatOwner           BoatOwner          @relation(fields: [boatOwnerId], references: [id], onDelete: Restrict)
+  landingLocation     String
+  landingDateTime     DateTime           @default(now())
+  confirmationStatus  String             @default("CONFIRMED") // "CONFIRMED" | "PARTIALLY_DISPATCHED" | "FULLY_DISPATCHED"
+  source              String             @default("external AI agent") // "external AI agent" | "authorised manual entry"
+  operatorConfirmedBy String?
+  notes               String?
+  items               LandingBatchItem[]
+  dispatches          Dispatch[]
+  outreachAttempts    OutreachAttempt[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+}
+
+model LandingBatchItem {
+  id              String         @id @default(cuid())
+  landingBatchId  String
+  landingBatch    LandingBatch   @relation(fields: [landingBatchId], references: [id], onDelete: Cascade)
+  fishSpecies     String
+  quantityKg      Float          // strictly positive
+  grade           String?        // e.g. "Grade A1 (Export)", "Grade A"
+  floorPricePerKg Float?         // asking rate per kg
+  iceCondition    String?        // e.g. "Well Iced (0-2°C)"
+  dispatchItems   DispatchItem[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model Dispatch {
+  id                 String         @id @default(cuid())
+  dispatchNumber     String         @unique // e.g. "DSP-MAL-000001"
+  idempotencyKey     String?        @unique // Duplicate request protection
+  landingBatchId     String
+  landingBatch       LandingBatch   @relation(fields: [landingBatchId], references: [id], onDelete: Restrict)
+  buyerId            String?
+  buyer              Buyer?         @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  recipientType      String         // "auction agent" | "wholesaler" | "retailer" | "trader" | "direct buyer"
+  recipientName      String
+  dispatchDateTime   DateTime       @default(now())
+  transportReference String?        // vehicle / consignment note
+  confirmationStatus String         @default("CONFIRMED") // "CONFIRMED" | "PENDING"
+  agreedRatePerKg    Float?
+  totalAmount        Float?
+  paymentStatus      String         @default("PENDING") // "PENDING" | "ADVANCE_PAID" | "FULLY_PAID"
+  paymentReference   String?
+  notes              String?
+  items              DispatchItem[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model DispatchItem {
+  id                 String           @id @default(cuid())
+  dispatchId         String
+  dispatch           Dispatch         @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  landingBatchItemId String
+  landingBatchItem   LandingBatchItem @relation(fields: [landingBatchItemId], references: [id], onDelete: Restrict)
+  quantityKg         Float            // strictly positive
+  agreedPricePerKg   Float?
+  totalAmount        Float?
+  createdAt          DateTime         @default(now())
+}
+
+model OutreachAttempt {
+  id                         String                   @id @default(cuid())
+  idempotencyKey             String?                  @unique // Duplicate request protection
+  landingBatchId             String
+  landingBatch               LandingBatch             @relation(fields: [landingBatchId], references: [id], onDelete: Cascade)
+  boatOwnerPotentialBuyerId  String?
+  boatOwnerPotentialBuyer    BoatOwnerPotentialBuyer? @relation(fields: [boatOwnerPotentialBuyerId], references: [id], onDelete: SetNull)
+  buyerId                    String?
+  buyer                      Buyer?                   @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  contactName                String
+  contactPhone               String
+  speciesOffered             String
+  quantityOfferedKg          Float?
+  offeredRatePerKg           Float?
+  channel                    String                   @default("AI_PHONE_CALL") // "AI_PHONE_CALL" | "OPERATOR_CALL"
+  status                     String                   @default("Contact attempt not made") // Normalized status
+  resultNotes                String?
+  attemptedAt                DateTime                 @default(now())
+  createdAt                  DateTime                 @default(now())
+}
+
+model AgentActivityLog {
+  id         String   @id @default(cuid())
+  endpoint   String
+  method     String
+  statusCode Int
+  source     String   @default("external AI agent")
+  message    String?
+  timestamp  DateTime @default(now())
+}
